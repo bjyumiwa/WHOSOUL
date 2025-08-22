@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+ctx.drawImage(imgEl, 0, 0, w, h);
+const imgd = ctx.getImageData(0,0,w,h);
+const gray = new Uint8ClampedArray(w*h);
+for(let i=0,j=0;i<imgd.data.length;i+=4,j++){
+gray[j] = (imgd.data[i]*0.299 + imgd.data[i+1]*0.587 + imgd.data[i+2]*0.114)|0;
+}
+// Sobelでエッジ
+const gx=[-1,0,1,-2,0,2,-1,0,1];
+const gy=[-1,-2,-1,0,0,0,1,2,1];
+const edge = new Uint8ClampedArray(w*h);
+for(let y=1;y<h-1;y++){
+for(let x=1;x<w-1;x++){
+let sx=0,sy=0,i=0;
+for(let ky=-1;ky<=1;ky++){
+for(let kx=-1;kx<=1;kx++){
+const v = gray[(y+ky)*w+(x+kx)];
+sx += v*gx[i]; sy += v*gy[i]; i++;
+}
+}
+const m = Math.min(255, Math.hypot(sx,sy)|0);
+edge[y*w+x] = m;
+}
+}
+// エッジを元に簡易二値化＋中心からの領域成長でシルエット近似（背景が単純な前提）
+const bin = new Uint8Array(w*h);
+const T = 60; // エッジしきい値
+for(let i=0;i<edge.length;i++) bin[i] = edge[i]>T ? 1 : 0;
+const fill = new Uint8Array(w*h);
+const cx = Math.floor(w/2), cy = Math.floor(h/2);
+const stack=[[cx,cy]]; fill[cy*w+cx]=1;
+const inside = new Uint8Array(w*h);
+while(stack.length){
+const [x,y]=stack.pop(); inside[y*w+x]=1;
+const nb=[[1,0],[-1,0],[0,1],[0,-1]];
+for(const [dx,dy] of nb){
+const nx=x+dx, ny=y+dy; if(nx<0||ny<0||nx>=w||ny>=h) continue;
+const idx=ny*w+nx; if(fill[idx]) continue;
+// エッジが強いところは境界とみなして進まない
+if(bin[idx]===0){ fill[idx]=1; stack.push([nx,ny]); }
+}
+}
+// inside=背景とみなし、反転してオブジェクト側を得る（ざっくり）
+const obj = new Uint8Array(w*h);
+for(let i=0;i<obj.length;i++) obj[i] = inside[i] ? 0 : 1;
+// 小さな穴を埋める簡易膨張
+const obj2 = new Uint8Array(w*h);
+for(let y=1;y<h-1;y++){
+for(let x=1;x<w-1;x++){
+let s=0; for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]) s+=obj[(y+dy)*w+(x+dx)];
+obj2[y*w+x] = (obj[y*w+x] || s>=3) ? 1 : 0;
+}
+}
+// マスク画像作成：透明（編集OK）=オブジェクト領域、 不透明（編集禁止）=背景
+const out = ctx.createImageData(w,h);
+for(let i=0,j=0;i<out.data.length;i+=4,j++){
+if(obj2[j]){
+// 透明…編集してOK（AIが描き換える）
+out.data[i]=0; out.data[i+1]=0; out.data[i+2]=0; out.data[i+3]=0;
+}else{
+// 不透明…保護領域（背景は触らせない）
+out.data[i]=200; out.data[i+1]=200; out.data[i+2]=200; out.data[i+3]=255;
+}
+}
+ctx.putImageData(out,0,0);
+}
+
+
+async function canvasToPngBlob(canvas){
+return new Promise(res=>canvas.toBlob(b=>res(b),'image/png'));
+}
+</script>
+</body>
+</html>
