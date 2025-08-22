@@ -1,74 +1,96 @@
 <!DOCTYPE html>
-ctx.drawImage(imgEl, 0, 0, w, h);
-const imgd = ctx.getImageData(0,0,w,h);
-const gray = new Uint8ClampedArray(w*h);
-for(let i=0,j=0;i<imgd.data.length;i+=4,j++){
-gray[j] = (imgd.data[i]*0.299 + imgd.data[i+1]*0.587 + imgd.data[i+2]*0.114)|0;
-}
-// Sobelでエッジ
-const gx=[-1,0,1,-2,0,2,-1,0,1];
-const gy=[-1,-2,-1,0,0,0,1,2,1];
-const edge = new Uint8ClampedArray(w*h);
-for(let y=1;y<h-1;y++){
-for(let x=1;x<w-1;x++){
-let sx=0,sy=0,i=0;
-for(let ky=-1;ky<=1;ky++){
-for(let kx=-1;kx<=1;kx++){
-const v = gray[(y+ky)*w+(x+kx)];
-sx += v*gx[i]; sy += v*gy[i]; i++;
-}
-}
-const m = Math.min(255, Math.hypot(sx,sy)|0);
-edge[y*w+x] = m;
-}
-}
-// エッジを元に簡易二値化＋中心からの領域成長でシルエット近似（背景が単純な前提）
-const bin = new Uint8Array(w*h);
-const T = 60; // エッジしきい値
-for(let i=0;i<edge.length;i++) bin[i] = edge[i]>T ? 1 : 0;
-const fill = new Uint8Array(w*h);
-const cx = Math.floor(w/2), cy = Math.floor(h/2);
-const stack=[[cx,cy]]; fill[cy*w+cx]=1;
-const inside = new Uint8Array(w*h);
-while(stack.length){
-const [x,y]=stack.pop(); inside[y*w+x]=1;
-const nb=[[1,0],[-1,0],[0,1],[0,-1]];
-for(const [dx,dy] of nb){
-const nx=x+dx, ny=y+dy; if(nx<0||ny<0||nx>=w||ny>=h) continue;
-const idx=ny*w+nx; if(fill[idx]) continue;
-// エッジが強いところは境界とみなして進まない
-if(bin[idx]===0){ fill[idx]=1; stack.push([nx,ny]); }
-}
-}
-// inside=背景とみなし、反転してオブジェクト側を得る（ざっくり）
-const obj = new Uint8Array(w*h);
-for(let i=0;i<obj.length;i++) obj[i] = inside[i] ? 0 : 1;
-// 小さな穴を埋める簡易膨張
-const obj2 = new Uint8Array(w*h);
-for(let y=1;y<h-1;y++){
-for(let x=1;x<w-1;x++){
-let s=0; for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]) s+=obj[(y+dy)*w+(x+dx)];
-obj2[y*w+x] = (obj[y*w+x] || s>=3) ? 1 : 0;
-}
-}
-// マスク画像作成：透明（編集OK）=オブジェクト領域、 不透明（編集禁止）=背景
-const out = ctx.createImageData(w,h);
-for(let i=0,j=0;i<out.data.length;i+=4,j++){
-if(obj2[j]){
-// 透明…編集してOK（AIが描き換える）
-out.data[i]=0; out.data[i+1]=0; out.data[i+2]=0; out.data[i+3]=0;
-}else{
-// 不透明…保護領域（背景は触らせない）
-out.data[i]=200; out.data[i+1]=200; out.data[i+2]=200; out.data[i+3]=255;
-}
-}
-ctx.putImageData(out,0,0);
-}
 
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>写真→トゥーン化（シルエット保全）</title>
+  <style>
+    html,body{height:100%;margin:0;overflow:hidden}
+    body{
+      font-family:"Noto Sans JP",system-ui,sans-serif;
+      color:#fff;
+      background:#000;
+      background-image:url("space_background.png"); /* WHOAIと同じ仕様 */
+      background-size:cover;
+      background-position:center;
+      background-attachment:fixed;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      min-height:100vh;
+    }
+    .wrap{width:min(980px,94vw);display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-items:start}
+    .card{
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:16px;
+      padding:16px;
+    }
+    h1{margin:0 0 8px 0;font-size:20px}
+    .small{font-size:12px;color:#a8aec7}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+    input[type=file],select,button,input[type=text]{background:#0f1020;color:#e7e9f1;border:1px solid #242634;border-radius:10px;padding:8px 10px}
+    button{cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .pane{aspect-ratio:1/1;border:1px dashed rgba(255,255,255,.12);border-radius:12px;display:grid;place-items:center;overflow:hidden;background:rgba(0,0,0,.18)}
+    .pane canvas,.pane img{max-width:100%;max-height:100%;display:block}
+    .result{position:relative;aspect-ratio:1/1;border:1px solid rgba(255,255,255,.10);border-radius:12px;overflow:hidden;background:rgba(0,0,0,.18)}
+    .actor{position:absolute;bottom:2%;left:0;width:180px;height:auto}
+    .floor{position:absolute;left:0;right:0;bottom:0;height:20%}
+    .slide{animation:slide 8s linear infinite alternate}
+    @keyframes slide{from{transform:translateX(0)}to{transform:translateX(calc(100% - 180px))}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>写真→トゥーン化（シルエット保全）</h1>
+      <div class="row">
+        <input id="file" type="file" accept="image/*" capture="environment" />
+        <input id="petName" type="text" placeholder="名前（例：○○）" style="flex:1;min-width:180px" />
+      </div>
+      <div class="row">
+        <label>スタイル</label>
+        <select id="style">
+          <option value="mascot flat 2D, clean outline, flat shading">マスコット（線＋フラット）</option>
+          <option value="anime style, cel shading, soft">アニメ風（セル塗り）</option>
+          <option value="vector kawaii icon, thick outline, minimal colors">アイコン風（極簡素）</option>
+        </select>
+        <label>色</label>
+        <select id="color">
+          <option value="none">指定なし</option>
+          <option value="pink">ピンク</option>
+          <option value="blue">ブルー</option>
+          <option value="green">グリーン</option>
+          <option value="purple">パープル</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="run" disabled>AIでキャラ化（シルエット保全）</button>
+        <button id="animate" disabled>床スライド</button>
+        <button id="download" disabled>画像保存</button>
+        <span id="msg" class="small"></span>
+      </div>
+      <div class="grid">
+        <div class="pane"><img id="preview" alt="preview" /></div>
+        <div class="pane"><canvas id="maskCanvas"></canvas></div>
+      </div>
+      <div class="small">左：元写真　右：自動生成マスク（薄灰＝編集禁止／透明＝編集領域）</div>
+    </div>
 
-async function canvasToPngBlob(canvas){
-return new Promise(res=>canvas.toBlob(b=>res(b),'image/png'));
-}
-</script>
+```
+<div class="card">
+  <div class="result" id="resultBox">
+    <img id="outImg" alt="output" style="position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;display:none" />
+    <img id="actor" class="actor" alt="actor" style="display:none" />
+    <div class="floor"></div>
+  </div>
+  <div class="row small">コツ：対象が中央・背景がシンプルだとシルエット抽出が安定します。必要なら写真を少しトリミングしてください。</div>
+</div>
+```
+
+  </div>
 </body>
 </html>
