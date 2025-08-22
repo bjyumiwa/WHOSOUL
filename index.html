@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>写真→トゥーン化（シルエット保全）</title>
 
-  <!-- favicon も stage1 に置いた場合 -->
-  <link rel="icon" href="public/assets/stage1/favicon.ico" />
+  <!-- 404回避：データURLのfavicon（ファイル不要） -->
+  <link rel="icon"
+    href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".85em" font-size="80">🌙</text></svg>' />
 
   <style>
     html,body{height:100%;margin:0;overflow:hidden}
@@ -14,7 +15,8 @@
       font-family:"Noto Sans JP",system-ui,sans-serif;
       color:#fff;
       background:#000;
-      background-image:url("public/assets/stage1/space_background.png"); /* public/assets/stage1 に配置 */
+      /* 背景は public/assets/stage1/ に置いたものを参照 */
+      background-image:url("public/assets/stage1/space_background.png");
       background-size:cover;
       background-position:center;
       background-attachment:fixed;
@@ -117,7 +119,77 @@
 // Worker のエンドポイントURLに合わせて変更
 const API_BASE = "https://<あなたの-worker>.workers.dev/api";
 
-// （省略：JavaScript処理部分は前回のものと同じ）
+const elFile = document.getElementById('file');
+const elPreview = document.getElementById('preview');
+const elMaskCanvas = document.getElementById('maskCanvas');
+const elRun = document.getElementById('run');
+const elAnimate = document.getElementById('animate');
+const elDownload = document.getElementById('download');
+const elMsg = document.getElementById('msg');
+const elStyle = document.getElementById('style');
+const elColor = document.getElementById('color');
+const elOut = document.getElementById('outImg');
+const elActor = document.getElementById('actor');
+const elName = document.getElementById('petName');
+
+elName.value = localStorage.getItem('my_pet_name') || '';
+elName.addEventListener('input', () => localStorage.setItem('my_pet_name', elName.value));
+
+let originalBlob = null;
+
+elFile.addEventListener('change', async () => {
+  const f = elFile.files?.[0];
+  if(!f){ elRun.disabled = true; return; }
+  originalBlob = f;
+  elPreview.src = URL.createObjectURL(f);
+  await new Promise(r => setTimeout(r,30));
+  // buildMaskFromImageは省略
+  elRun.disabled = false;
+});
+
+elRun.addEventListener('click', async () => {
+  if(!originalBlob){ elMsg.textContent = '写真がありません'; return; }
+  elMsg.textContent = 'AIがキャラクター化中…';
+  try{
+    const maskBlob = await canvasToPngBlob(elMaskCanvas);
+    const fd = new FormData();
+    fd.append('image', originalBlob, 'input.png');
+    fd.append('mask', maskBlob, 'mask.png');
+    fd.append('style', elStyle.value);
+    fd.append('color', elColor.value);
+    fd.append('name', elName.value || '');
+
+    const res = await fetch(`${API_BASE}/toonify_masked`, { method:'POST', body: fd });
+    if(!res.ok){ throw new Error(await res.text()); }
+    const data = await res.json();
+
+    elOut.src = data.image;
+    elOut.style.display = 'block';
+    elActor.src = data.image;
+    elActor.style.display = 'block';
+
+    elAnimate.disabled = false;
+    elDownload.disabled = false;
+    elMsg.textContent = '完成しました';
+  }catch(e){
+    console.error(e);
+    elMsg.textContent = 'APIエラー：' + e.message;
+  }
+});
+
+elAnimate.addEventListener('click', () => {
+  elActor.classList.toggle('slide');
+});
+
+elDownload.addEventListener('click', () => {
+  if(!elOut.src) return;
+  const a = document.createElement('a');
+  a.href = elOut.src; a.download = (elName.value||'character') + '.png'; a.click();
+});
+
+async function canvasToPngBlob(canvas){
+  return new Promise(res=>canvas.toBlob(b=>res(b),'image/png'));
+}
 </script>
 </body>
 </html>
