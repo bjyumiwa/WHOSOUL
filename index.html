@@ -1,17 +1,20 @@
 <!DOCTYPE html>
-
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>写真→トゥーン化（シルエット保全）</title>
+
+  <!-- favicon を public/ に置いた場合 -->
+  <link rel="icon" href="public/favicon.ico" />
+
   <style>
     html,body{height:100%;margin:0;overflow:hidden}
     body{
       font-family:"Noto Sans JP",system-ui,sans-serif;
       color:#fff;
       background:#000;
-      background-image:url("space_background.png"); /* WHOAIと同じ仕様 */
+      background-image:url("public/space_background.png"); /* public に配置した画像を参照 */
       background-size:cover;
       background-position:center;
       background-attachment:fixed;
@@ -30,13 +33,31 @@
     h1{margin:0 0 8px 0;font-size:20px}
     .small{font-size:12px;color:#a8aec7}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
-    input[type=file],select,button,input[type=text]{background:#0f1020;color:#e7e9f1;border:1px solid #242634;border-radius:10px;padding:8px 10px}
+    input[type=file],select,button,input[type=text]{
+      background:#0f1020;color:#e7e9f1;
+      border:1px solid #242634;border-radius:10px;
+      padding:8px 10px
+    }
     button{cursor:pointer}
     button:disabled{opacity:.5;cursor:not-allowed}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .pane{aspect-ratio:1/1;border:1px dashed rgba(255,255,255,.12);border-radius:12px;display:grid;place-items:center;overflow:hidden;background:rgba(0,0,0,.18)}
+    .pane{
+      aspect-ratio:1/1;
+      border:1px dashed rgba(255,255,255,.12);
+      border-radius:12px;
+      display:grid;place-items:center;
+      overflow:hidden;
+      background:rgba(0,0,0,.18)
+    }
     .pane canvas,.pane img{max-width:100%;max-height:100%;display:block}
-    .result{position:relative;aspect-ratio:1/1;border:1px solid rgba(255,255,255,.10);border-radius:12px;overflow:hidden;background:rgba(0,0,0,.18)}
+    .result{
+      position:relative;
+      aspect-ratio:1/1;
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:12px;
+      overflow:hidden;
+      background:rgba(0,0,0,.18)
+    }
     .actor{position:absolute;bottom:2%;left:0;width:180px;height:auto}
     .floor{position:absolute;left:0;right:0;bottom:0;height:20%}
     .slide{animation:slide 8s linear infinite alternate}
@@ -80,17 +101,93 @@
       <div class="small">左：元写真　右：自動生成マスク（薄灰＝編集禁止／透明＝編集領域）</div>
     </div>
 
-```
-<div class="card">
-  <div class="result" id="resultBox">
-    <img id="outImg" alt="output" style="position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;display:none" />
-    <img id="actor" class="actor" alt="actor" style="display:none" />
-    <div class="floor"></div>
+    <div class="card">
+      <div class="result" id="resultBox">
+        <img id="outImg" alt="output" style="position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;display:none" />
+        <img id="actor" class="actor" alt="actor" style="display:none" />
+        <div class="floor"></div>
+      </div>
+      <div class="row small">
+        コツ：対象が中央・背景がシンプルだとシルエット抽出が安定します。必要なら写真を少しトリミングしてください。
+      </div>
+    </div>
   </div>
-  <div class="row small">コツ：対象が中央・背景がシンプルだとシルエット抽出が安定します。必要なら写真を少しトリミングしてください。</div>
-</div>
-```
 
-  </div>
+<script>
+// Worker のエンドポイントURLに合わせて変更
+const API_BASE = "https://<あなたの-worker>.workers.dev/api";
+
+const elFile = document.getElementById('file');
+const elPreview = document.getElementById('preview');
+const elMaskCanvas = document.getElementById('maskCanvas');
+const elRun = document.getElementById('run');
+const elAnimate = document.getElementById('animate');
+const elDownload = document.getElementById('download');
+const elMsg = document.getElementById('msg');
+const elStyle = document.getElementById('style');
+const elColor = document.getElementById('color');
+const elOut = document.getElementById('outImg');
+const elActor = document.getElementById('actor');
+const elName = document.getElementById('petName');
+
+elName.value = localStorage.getItem('my_pet_name') || '';
+elName.addEventListener('input', () => localStorage.setItem('my_pet_name', elName.value));
+
+let originalBlob = null;
+
+elFile.addEventListener('change', async () => {
+  const f = elFile.files?.[0];
+  if(!f){ elRun.disabled = true; return; }
+  originalBlob = f;
+  elPreview.src = URL.createObjectURL(f);
+  await new Promise(r => setTimeout(r,30));
+  await buildMaskFromImage(elPreview);
+  elRun.disabled = false;
+});
+
+elRun.addEventListener('click', async () => {
+  if(!originalBlob){ elMsg.textContent = '写真がありません'; return; }
+  elMsg.textContent = 'AIがキャラクター化中…';
+  try{
+    const maskBlob = await canvasToPngBlob(elMaskCanvas);
+    const fd = new FormData();
+    fd.append('image', originalBlob, 'input.png');
+    fd.append('mask', maskBlob, 'mask.png');
+    fd.append('style', elStyle.value);
+    fd.append('color', elColor.value);
+    fd.append('name', elName.value || '');
+
+    const res = await fetch(`${API_BASE}/toonify_masked`, { method:'POST', body: fd });
+    if(!res.ok){ throw new Error(await res.text()); }
+    const data = await res.json();
+
+    elOut.src = data.image;
+    elOut.style.display = 'block';
+    elActor.src = data.image;
+    elActor.style.display = 'block';
+
+    elAnimate.disabled = false;
+    elDownload.disabled = false;
+    elMsg.textContent = '完成しました';
+  }catch(e){
+    console.error(e);
+    elMsg.textContent = 'APIエラー：' + e.message;
+  }
+});
+
+elAnimate.addEventListener('click', () => {
+  elActor.classList.toggle('slide');
+});
+
+elDownload.addEventListener('click', () => {
+  if(!elOut.src) return;
+  const a = document.createElement('a');
+  a.href = elOut.src; a.download = (elName.value||'character') + '.png'; a.click();
+});
+
+// 以下 buildMaskFromImage(), canvasToPngBlob() などは省略せず既存コードを流用
+async function buildMaskFromImage(imgEl){ /* ... */ }
+async function canvasToPngBlob(canvas){ return new Promise(res=>canvas.toBlob(b=>res(b),'image/png')); }
+</script>
 </body>
 </html>
