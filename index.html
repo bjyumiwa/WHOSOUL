@@ -3,19 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>写真→トゥーン化（シルエット保全・最小実装）</title>
+  <title>写真→トゥーン化（軽量版）</title>
 
-  <!-- 404回避：データURLのfavicon（ファイル不要） -->
   <link rel="icon"
     href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".85em" font-size="80">🌙</text></svg>' />
 
   <style>
     html,body{height:100%;margin:0;overflow:hidden}
     body{
-      font-family:"Noto Sans JP",system-ui,sans-serif;
-      color:#fff;
-      background:#000;
-      /* 背景は public/assets/stage1/ に置いたものを参照 */
+      font-family:"Noto Sans JP",system-ui,sans-serif;color:#fff;background:#000;
       background-image:url("public/assets/stage1/space_background.png");
       background-size:cover;background-position:center;background-attachment:fixed;
       display:flex;justify-content:center;align-items:center;min-height:100vh;
@@ -32,7 +28,6 @@
     .pane canvas,.pane img{max-width:100%;max-height:100%;display:block}
     .result{position:relative;aspect-ratio:1/1;border:1px solid rgba(255,255,255,.10);border-radius:12px;overflow:hidden;background:rgba(0,0,0,.18)}
     .actor{position:absolute;bottom:2%;left:0;width:180px;height:auto}
-    .floor{position:absolute;left:0;right:0;bottom:0;height:20%}
     .slide{animation:slide 8s linear infinite alternate}
     @keyframes slide{from{transform:translateX(0)}to{transform:translateX(calc(100% - 180px))}}
   </style>
@@ -40,11 +35,13 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>写真→トゥーン化（シルエット保全・最小実装）</h1>
+      <h1>写真→トゥーン化（軽量版）</h1>
+
       <div class="row">
         <input id="file" type="file" accept="image/*" capture="environment" />
         <input id="petName" type="text" placeholder="名前（例：○○）" style="flex:1;min-width:180px" />
       </div>
+
       <div class="row">
         <label>スタイル</label>
         <select id="style">
@@ -52,6 +49,7 @@
           <option value="anime style, cel shading, soft">アニメ風（セル塗り）</option>
           <option value="vector kawaii icon, thick outline, minimal colors">アイコン風（極簡素）</option>
         </select>
+
         <label>色</label>
         <select id="color">
           <option value="none">指定なし</option>
@@ -61,31 +59,52 @@
           <option value="purple">パープル</option>
         </select>
       </div>
+
       <div class="row">
-        <button id="run" disabled>AIでキャラ化（シルエット保全）</button>
+        <label>入力縮小（アップロード前）</label>
+        <select id="inMax">
+          <option value="1024">長辺 1024px（推奨）</option>
+          <option value="768">長辺 768px</option>
+          <option value="512">長辺 512px（最小）</option>
+          <option value="0">原寸のまま</option>
+        </select>
+
+        <label>出力サイズ</label>
+        <select id="outSize">
+          <option value="512x512">512 × 512（推奨/安め）</option>
+          <option value="256x256">256 × 256（さらに安い）</option>
+          <option value="1024x1024">1024 × 1024（高精細/高コスト）</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <button id="run" disabled>AIでキャラ化（低コスト）</button>
         <button id="animate" disabled>床スライド</button>
         <button id="download" disabled>画像保存</button>
         <span id="msg" class="small"></span>
       </div>
+
       <div class="grid">
         <div class="pane"><img id="preview" alt="preview" /></div>
         <div class="pane"><canvas id="maskCanvas"></canvas></div>
       </div>
-      <div class="small">左：元写真　右：生成マスク（いまは全域編集の透明マスク／後で精密化可能）</div>
+
+      <div class="small">
+        左：アップロード予定の画像（縮小後）／右：マスク（いまは全域編集の透明マスク）
+        出力サイズを小さくするとAPIコストが下がります。
+      </div>
     </div>
 
     <div class="card">
       <div class="result" id="resultBox">
         <img id="outImg" alt="output" style="position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;display:none" />
         <img id="actor" class="actor" alt="actor" style="display:none" />
-        <div class="floor"></div>
       </div>
-      <div class="row small">コツ：対象が中央・背景がシンプルだと安定します。必要なら写真を少しトリミングしてください。</div>
     </div>
   </div>
 
 <script>
-// あなたの Worker に合わせて固定
+// あなたの Worker
 const API_BASE = "https://morning-violet-07e0.yume3pom.workers.dev/api";
 
 const elFile = document.getElementById('file');
@@ -100,33 +119,44 @@ const elColor = document.getElementById('color');
 const elOut = document.getElementById('outImg');
 const elActor = document.getElementById('actor');
 const elName = document.getElementById('petName');
+const elInMax = document.getElementById('inMax');
+const elOutSize = document.getElementById('outSize');
 
 elName.value = localStorage.getItem('my_pet_name') || '';
 elName.addEventListener('input', () => localStorage.setItem('my_pet_name', elName.value));
 
-let originalBlob = null;
+let uploadBlob = null; // 縮小後を送る
 
 elFile.addEventListener('change', async () => {
   const f = elFile.files?.[0];
   if(!f){ elRun.disabled = true; return; }
-  originalBlob = f;
-  elPreview.src = URL.createObjectURL(f);
-  await new Promise(r => setTimeout(r,30));
-  await buildMaskFromImage(elPreview); // まずは全域透明マスク
-  elRun.disabled = false;
+  elMsg.textContent = '画像を準備中…';
+  try{
+    const maxSide = parseInt(elInMax.value,10);
+    uploadBlob = await downscaleImage(f, maxSide);              // 縮小
+    elPreview.src = URL.createObjectURL(uploadBlob);             // 縮小後を表示
+    await wait(40);
+    await buildTransparentMaskFromPreview();                     // 全域透明マスク
+    elRun.disabled = false;
+    elMsg.textContent = '';
+  }catch(e){
+    console.error(e);
+    elMsg.textContent = '画像の準備に失敗しました';
+  }
 });
 
 elRun.addEventListener('click', async () => {
-  if(!originalBlob){ elMsg.textContent = '写真がありません'; return; }
+  if(!uploadBlob){ elMsg.textContent = '画像がありません'; return; }
   elMsg.textContent = 'AIがキャラクター化中…';
   try{
     const maskBlob = await canvasToPngBlob(elMaskCanvas);
     const fd = new FormData();
-    fd.append('image', originalBlob, 'input.png');
+    fd.append('image', uploadBlob, 'input.png');   // 縮小後を送る
     fd.append('mask', maskBlob, 'mask.png');
     fd.append('style', elStyle.value);
     fd.append('color', elColor.value);
     fd.append('name', elName.value || '');
+    fd.append('size', elOutSize.value);            // 出力サイズ（コストに直結）
 
     const res = await fetch(`${API_BASE}/toonify_masked`, { method:'POST', body: fd });
     if(!res.ok){ throw new Error(await res.text()); }
@@ -146,9 +176,7 @@ elRun.addEventListener('click', async () => {
   }
 });
 
-elAnimate.addEventListener('click', () => {
-  elActor.classList.toggle('slide');
-});
+elAnimate.addEventListener('click', () => elActor.classList.toggle('slide'));
 
 elDownload.addEventListener('click', () => {
   if(!elOut.src) return;
@@ -156,29 +184,48 @@ elDownload.addEventListener('click', () => {
   a.href = elOut.src; a.download = (elName.value||'character') + '.png'; a.click();
 });
 
-// ===== 最小のマスク生成：画像全体を「編集OK」にする透明マスク =====
-async function buildMaskFromImage(imgEl){
-  // キャンバスを画像サイズに合わせる
-  const w = imgEl.naturalWidth || imgEl.width;
-  const h = imgEl.naturalHeight || imgEl.height;
-  const max = 1024; // 表示用に大きすぎる場合は縮小
-  const scale = Math.min(1, max / Math.max(w,h));
-  const cw = Math.round(w*scale), ch = Math.round(h*scale);
+// ===== ユーティリティ =====
+function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-  const c = elMaskCanvas;
-  c.width = cw; c.height = ch;
-
-  const ctx = c.getContext('2d');
-  // 完全透明で塗る＝全域編集可能
-  ctx.clearRect(0,0,cw,ch);
-  // 透過PNGとして扱われるように一度透明ピクセルを書き込む
-  const imgData = ctx.createImageData(cw, ch);
-  // RGBA すべて 0（透明）なのでループ不要
-  ctx.putImageData(imgData, 0, 0);
+async function downscaleImage(file, maxSide){
+  if(!maxSide || maxSide <= 0) return file; // 原寸
+  const img = await blobToImage(file);
+  const {width, height} = img;
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  const w = Math.round(width * scale), h = Math.round(height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, w, h);
+  // PNGで返す（透明不要でも互換性重視）
+  return new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
 }
 
-// キャンバスをPNGに
-async function canvasToPngBlob(canvas){
+function blobToImage(blob){
+  return new Promise((res,rej)=>{
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); res(img); };
+    img.onerror = rej;
+    img.src = url;
+  });
+}
+
+async function buildTransparentMaskFromPreview(){
+  // プレビュー画像と同じサイズで完全透明のマスクを作る
+  await wait(10);
+  const img = elPreview;
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  elMaskCanvas.width = w; elMaskCanvas.height = h;
+  const ctx = elMaskCanvas.getContext('2d');
+  ctx.clearRect(0,0,w,h);
+  const data = ctx.createImageData(w,h); // RGBA=0（全透明）
+  ctx.putImageData(data,0,0);
+}
+
+function canvasToPngBlob(canvas){
   return new Promise(res=>canvas.toBlob(b=>res(b),'image/png'));
 }
 </script>
