@@ -3,31 +3,64 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>写真→トゥーン化（軽量版）</title>
+  <title>写真→トゥーン化（シルエット保全）</title>
 
+  <!-- favicon -->
   <link rel="icon"
     href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".85em" font-size="80">🌙</text></svg>' />
 
   <style>
     html,body{height:100%;margin:0;overflow:hidden}
     body{
-      font-family:"Noto Sans JP",system-ui,sans-serif;color:#fff;background:#000;
+      font-family:"Noto Sans JP",system-ui,sans-serif;
+      color:#fff;
+      background:#000;
       background-image:url("public/assets/stage1/space_background.png");
-      background-size:cover;background-position:center;background-attachment:fixed;
-      display:flex;justify-content:center;align-items:center;min-height:100vh;
+      background-size:cover;
+      background-position:center;
+      background-attachment:fixed;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      min-height:100vh;
     }
     .wrap{width:min(980px,94vw);display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-items:start}
-    .card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px}
+    .card{
+      background:rgba(0,0,0,.35);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:16px;
+      padding:16px;
+    }
     h1{margin:0 0 8px 0;font-size:20px}
     .small{font-size:12px;color:#a8aec7}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
-    input[type=file],select,button,input[type=text]{background:#0f1020;color:#e7e9f1;border:1px solid #242634;border-radius:10px;padding:8px 10px}
-    button{cursor:pointer} button:disabled{opacity:.5;cursor:not-allowed}
+    input[type=file],select,button,input[type=text]{
+      background:#0f1020;color:#e7e9f1;
+      border:1px solid #242634;border-radius:10px;
+      padding:8px 10px
+    }
+    button{cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .pane{aspect-ratio:1/1;border:1px dashed rgba(255,255,255,.12);border-radius:12px;display:grid;place-items:center;overflow:hidden;background:rgba(0,0,0,.18)}
+    .pane{
+      aspect-ratio:1/1;
+      border:1px dashed rgba(255,255,255,.12);
+      border-radius:12px;
+      display:grid;place-items:center;
+      overflow:hidden;
+      background:rgba(0,0,0,.18)
+    }
     .pane canvas,.pane img{max-width:100%;max-height:100%;display:block}
-    .result{position:relative;aspect-ratio:1/1;border:1px solid rgba(255,255,255,.10);border-radius:12px;overflow:hidden;background:rgba(0,0,0,.18)}
+    .result{
+      position:relative;
+      aspect-ratio:1/1;
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:12px;
+      overflow:hidden;
+      background:rgba(0,0,0,.18)
+    }
     .actor{position:absolute;bottom:2%;left:0;width:180px;height:auto}
+    .floor{position:absolute;left:0;right:0;bottom:0;height:20%}
     .slide{animation:slide 8s linear infinite alternate}
     @keyframes slide{from{transform:translateX(0)}to{transform:translateX(calc(100% - 180px))}}
   </style>
@@ -35,13 +68,11 @@
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>写真→トゥーン化（軽量版）</h1>
-
+      <h1>写真→トゥーン化（シルエット保全）</h1>
       <div class="row">
         <input id="file" type="file" accept="image/*" capture="environment" />
         <input id="petName" type="text" placeholder="名前（例：○○）" style="flex:1;min-width:180px" />
       </div>
-
       <div class="row">
         <label>スタイル</label>
         <select id="style">
@@ -49,7 +80,6 @@
           <option value="anime style, cel shading, soft">アニメ風（セル塗り）</option>
           <option value="vector kawaii icon, thick outline, minimal colors">アイコン風（極簡素）</option>
         </select>
-
         <label>色</label>
         <select id="color">
           <option value="none">指定なし</option>
@@ -59,53 +89,34 @@
           <option value="purple">パープル</option>
         </select>
       </div>
-
       <div class="row">
-        <label>入力縮小（アップロード前）</label>
-        <select id="inMax">
-          <option value="1024">長辺 1024px（推奨）</option>
-          <option value="768">長辺 768px</option>
-          <option value="512">長辺 512px（最小）</option>
-          <option value="0">原寸のまま</option>
-        </select>
-
-        <label>出力サイズ</label>
-        <select id="outSize">
-          <option value="512x512">512 × 512（推奨/安め）</option>
-          <option value="256x256">256 × 256（さらに安い）</option>
-          <option value="1024x1024">1024 × 1024（高精細/高コスト）</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <button id="run" disabled>AIでキャラ化（低コスト）</button>
+        <button id="run" disabled>AIでキャラ化（シルエット保全）</button>
         <button id="animate" disabled>床スライド</button>
         <button id="download" disabled>画像保存</button>
         <span id="msg" class="small"></span>
       </div>
-
       <div class="grid">
         <div class="pane"><img id="preview" alt="preview" /></div>
         <div class="pane"><canvas id="maskCanvas"></canvas></div>
       </div>
-
-      <div class="small">
-        左：アップロード予定の画像（縮小後）／右：マスク（いまは全域編集の透明マスク）
-        出力サイズを小さくするとAPIコストが下がります。
-      </div>
+      <div class="small">左：元写真　右：自動生成マスク</div>
     </div>
 
     <div class="card">
       <div class="result" id="resultBox">
         <img id="outImg" alt="output" style="position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;display:none" />
         <img id="actor" class="actor" alt="actor" style="display:none" />
+        <div class="floor"></div>
+      </div>
+      <div class="row small">
+        コツ：対象が中央・背景がシンプルだと安定します。必要なら写真を少しトリミングしてください。
       </div>
     </div>
   </div>
 
 <script>
-// あなたの Worker
-const API_BASE = "https://morning-violet-07e0.yume3pom.workers.dev/api";
+// Worker のエンドポイント（新しいものに変更！）
+const API_BASE = "https://twilight-dream-7e93.yume3pom.workers.dev/api";
 
 const elFile = document.getElementById('file');
 const elPreview = document.getElementById('preview');
@@ -119,44 +130,32 @@ const elColor = document.getElementById('color');
 const elOut = document.getElementById('outImg');
 const elActor = document.getElementById('actor');
 const elName = document.getElementById('petName');
-const elInMax = document.getElementById('inMax');
-const elOutSize = document.getElementById('outSize');
 
 elName.value = localStorage.getItem('my_pet_name') || '';
 elName.addEventListener('input', () => localStorage.setItem('my_pet_name', elName.value));
 
-let uploadBlob = null; // 縮小後を送る
+let originalBlob = null;
 
 elFile.addEventListener('change', async () => {
   const f = elFile.files?.[0];
   if(!f){ elRun.disabled = true; return; }
-  elMsg.textContent = '画像を準備中…';
-  try{
-    const maxSide = parseInt(elInMax.value,10);
-    uploadBlob = await downscaleImage(f, maxSide);              // 縮小
-    elPreview.src = URL.createObjectURL(uploadBlob);             // 縮小後を表示
-    await wait(40);
-    await buildTransparentMaskFromPreview();                     // 全域透明マスク
-    elRun.disabled = false;
-    elMsg.textContent = '';
-  }catch(e){
-    console.error(e);
-    elMsg.textContent = '画像の準備に失敗しました';
-  }
+  originalBlob = f;
+  elPreview.src = URL.createObjectURL(f);
+  await new Promise(r => setTimeout(r,30));
+  elRun.disabled = false;
 });
 
 elRun.addEventListener('click', async () => {
-  if(!uploadBlob){ elMsg.textContent = '画像がありません'; return; }
+  if(!originalBlob){ elMsg.textContent = '写真がありません'; return; }
   elMsg.textContent = 'AIがキャラクター化中…';
   try{
     const maskBlob = await canvasToPngBlob(elMaskCanvas);
     const fd = new FormData();
-    fd.append('image', uploadBlob, 'input.png');   // 縮小後を送る
+    fd.append('image', originalBlob, 'input.png');
     fd.append('mask', maskBlob, 'mask.png');
     fd.append('style', elStyle.value);
     fd.append('color', elColor.value);
     fd.append('name', elName.value || '');
-    fd.append('size', elOutSize.value);            // 出力サイズ（コストに直結）
 
     const res = await fetch(`${API_BASE}/toonify_masked`, { method:'POST', body: fd });
     if(!res.ok){ throw new Error(await res.text()); }
@@ -176,7 +175,9 @@ elRun.addEventListener('click', async () => {
   }
 });
 
-elAnimate.addEventListener('click', () => elActor.classList.toggle('slide'));
+elAnimate.addEventListener('click', () => {
+  elActor.classList.toggle('slide');
+});
 
 elDownload.addEventListener('click', () => {
   if(!elOut.src) return;
@@ -184,48 +185,7 @@ elDownload.addEventListener('click', () => {
   a.href = elOut.src; a.download = (elName.value||'character') + '.png'; a.click();
 });
 
-// ===== ユーティリティ =====
-function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
-
-async function downscaleImage(file, maxSide){
-  if(!maxSide || maxSide <= 0) return file; // 原寸
-  const img = await blobToImage(file);
-  const {width, height} = img;
-  const scale = Math.min(1, maxSide / Math.max(width, height));
-  const w = Math.round(width * scale), h = Math.round(height * scale);
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, w, h);
-  // PNGで返す（透明不要でも互換性重視）
-  return new Promise(res => canvas.toBlob(b => res(b), 'image/png'));
-}
-
-function blobToImage(blob){
-  return new Promise((res,rej)=>{
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = () => { URL.revokeObjectURL(url); res(img); };
-    img.onerror = rej;
-    img.src = url;
-  });
-}
-
-async function buildTransparentMaskFromPreview(){
-  // プレビュー画像と同じサイズで完全透明のマスクを作る
-  await wait(10);
-  const img = elPreview;
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
-  elMaskCanvas.width = w; elMaskCanvas.height = h;
-  const ctx = elMaskCanvas.getContext('2d');
-  ctx.clearRect(0,0,w,h);
-  const data = ctx.createImageData(w,h); // RGBA=0（全透明）
-  ctx.putImageData(data,0,0);
-}
-
-function canvasToPngBlob(canvas){
+async function canvasToPngBlob(canvas){
   return new Promise(res=>canvas.toBlob(b=>res(b),'image/png'));
 }
 </script>
